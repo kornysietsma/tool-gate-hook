@@ -348,7 +348,7 @@ outside = ["{cwd}", "/tmp"]
 | a [floor](#what-cant-be-allowed-floors) name | that floor fired: `shell_reentry`, `exec_tool`, `unsupported`, … |
 
 - `decision` is `ask` or `deny`: constructs can only make a decision stricter, so `allow` is a config error.
-- `outside` (only for `redirect_write`): the rule only fires for targets **not** under these directories, resolved like `paths_under`. Without it, any write fires.
+- `outside` (only for `redirect_write`): the rule only fires for targets **not** under these directories, resolved like `paths_under`. A target only the shell can work out (`$HOME/x`, `"$TMPDIR/out.json"`, `$(…)`, a glob) counts as outside, since it could be anywhere. Without it, any write fires.
 - An unknown construct is a config error.
 - The reason names what triggered the rule: ` — "<target>"` for a redirect, else ` — in "<command>"`, else the floor's detail (` — for loop`).
 

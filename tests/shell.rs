@@ -731,6 +731,30 @@ fn writes_outside_the_listed_directories_ask() {
 }
 
 #[test]
+fn writes_to_targets_only_the_shell_can_work_out_ask_even_when_nothing_is_allowed() {
+    let project = Project::new();
+    for command in [
+        "foo > $HOME/.zshrc",
+        "foo > \"$TMPDIR/out.json\"",
+        "foo > $(echo x)",
+        "foo > out*.txt",
+    ] {
+        let (decision, reason) = project
+            .decision_with(CONSTRUCTS_CONFIG, command)
+            .unwrap_or_default();
+        assert_eq!(decision, "ask", "{command}");
+        assert!(
+            reason.contains("by construct rule #2"),
+            "{command}: {reason}"
+        );
+    }
+    assert_eq!(
+        project.decision_with(CONSTRUCTS_CONFIG, "foo > out.txt"),
+        None
+    );
+}
+
+#[test]
 fn redirect_targets_are_checked_from_every_possible_directory() {
     let project = Project::new();
     for (command, expected) in [

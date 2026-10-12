@@ -364,10 +364,12 @@ impl ConstructRule {
                 cwd,
                 dirs: &construct.dirs,
             };
-            construct
-                .target
-                .as_ref()
-                .is_some_and(|target| !location.is_under(target, &self.outside, context))
+            // A target only the shell can work out might be anywhere
+            construct.dynamic_target
+                || construct
+                    .target
+                    .as_ref()
+                    .is_some_and(|target| !location.is_under(target, &self.outside, context))
         };
         construct.kind == self.construct && (self.outside.is_empty() || outside())
     }

@@ -198,7 +198,7 @@ outside = ["{cwd}", "/tmp"]
 | `subshell` | `( … )` | — |
 | `substitution` | `$( … )`, backticks, `<( … )`, `>( … )` | — |
 
-- Keys: `decision` (required), `construct` (required, one of the above or a floor name; a floor construct rule asks or denies whenever the floor fires, so deny rules' blind spots (`bash -c`, `eval`, `xargs`, loops) can still be made to ask), `description`, `reason`, `outside` (only for `redirect_write`; elsewhere a config error).
+- Keys: `decision` (required), `construct` (required, one of the above or a floor name; a floor construct rule asks or denies whenever the floor fires, so deny rules' blind spots (`bash -c`, `eval`, `xargs`, loops) can still be made to ask), `description`, `reason`, `outside` (only for `redirect_write`; elsewhere a config error; a target only the shell can work out counts as outside).
 - An `allow` construct rule is a config error: constructs can only raise to `ask` or `deny`.
 
 ### `[shell]`

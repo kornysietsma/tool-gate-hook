@@ -253,6 +253,8 @@ pub struct Construct {
     pub detail: Option<String>,
     /// The file, for redirects
     pub target: Option<String>,
+    /// For redirects: the target has an expansion, so where it points is unknown
+    pub dynamic_target: bool,
     /// For redirects: every directory the shell might be in when the target is opened
     pub dirs: Vec<PathBuf>,
 }
@@ -274,6 +276,7 @@ impl Analysis {
                 segment: None,
                 detail: Some(detail.to_owned()),
                 target: None,
+                dynamic_target: false,
                 dirs: vec![],
             }],
         }
@@ -412,6 +415,7 @@ impl Walker<'_> {
             segment: (self.analysis.segments.len() > first).then_some(first),
             detail: None,
             target: None,
+            dynamic_target: false,
             dirs: vec![],
         };
         self.analysis.constructs.insert(position, construct);
@@ -724,6 +728,17 @@ impl Walker<'_> {
         self.value(&word.value, &word.value, segment, role, pending)
     }
 
+    /// The word's value, and whether it is static
+    fn checked_word<'w>(
+        &mut self,
+        word: &Word,
+        segment: Option<usize>,
+        role: Role,
+        pending: &mut Vec<Pending<'w>>,
+    ) -> (String, bool) {
+        self.checked_value(&word.value, &word.value, segment, role, pending)
+    }
+
     /// The static value of `raw`; otherwise `raw`, recording why it isn't static, as part of
     /// `shown`
     fn value<'w>(
@@ -734,9 +749,21 @@ impl Walker<'_> {
         role: Role,
         pending: &mut Vec<Pending<'w>>,
     ) -> String {
+        self.checked_value(raw, shown, segment, role, pending).0
+    }
+
+    /// Like `value`, also saying whether the value is static
+    fn checked_value<'w>(
+        &mut self,
+        raw: &str,
+        shown: &str,
+        segment: Option<usize>,
+        role: Role,
+        pending: &mut Vec<Pending<'w>>,
+    ) -> (String, bool) {
         let info = words::analyse(raw, self.home, self.options);
         pending.extend(info.substitutions.into_iter().map(Pending::Substitution));
-        info.value.unwrap_or_else(|why| {
+        let value = info.value.map_err(|why| {
             let place = match role {
                 Role::Command | Role::Arg => "",
                 Role::Redirect => "redirect ",
@@ -748,8 +775,11 @@ impl Walker<'_> {
                 (NotStatic::Expansion(_), _) => ConstructKind::Expansion,
             };
             self.floor(kind, segment, format!("{} in {place}{shown}", why.why()));
-            raw.to_owned()
-        })
+        });
+        match value {
+            Ok(value) => (value, true),
+            Err(()) => (raw.to_owned(), false),
+        }
     }
 
     fn redirect<'r>(
@@ -769,16 +799,19 @@ impl Walker<'_> {
                     IoFileRedirectKind::DuplicateInput => "<&",
                     IoFileRedirectKind::DuplicateOutput => ">&",
                 };
-                let (target, is_file) = match target {
+                let (target, is_file, is_static) = match target {
                     IoFileRedirectTarget::Filename(word) => {
-                        (self.word(word, segment, Role::Redirect, pending), true)
+                        let (target, is_static) =
+                            self.checked_word(word, segment, Role::Redirect, pending);
+                        (target, true, is_static)
                     }
                     IoFileRedirectTarget::Duplicate(word) => {
-                        let target = self.word(word, segment, Role::Redirect, pending);
+                        let (target, is_static) =
+                            self.checked_word(word, segment, Role::Redirect, pending);
                         let is_file = !is_fd(&target);
-                        (target, is_file)
+                        (target, is_file, is_static)
                     }
-                    IoFileRedirectTarget::Fd(fd) => (fd.to_string(), false),
+                    IoFileRedirectTarget::Fd(fd) => (fd.to_string(), false, true),
                     IoFileRedirectTarget::ProcessSubstitution(kind, subshell) => {
                         let text = process_substitution_text(kind, subshell);
                         self.floor(
@@ -787,11 +820,11 @@ impl Walker<'_> {
                             format!("process substitution in redirect {text}"),
                         );
                         pending.push(Pending::Process(subshell));
-                        (text, false)
+                        (text, false, false)
                     }
                 };
                 if is_file {
-                    self.file_redirect(kind, &target, segment);
+                    self.file_redirect(kind, &target, is_static, segment);
                 }
                 Some(Redirect {
                     op,
@@ -831,8 +864,8 @@ impl Walker<'_> {
                 })
             }
             IoRedirect::OutputAndError(word, append) => {
-                let target = self.word(word, segment, Role::Redirect, pending);
-                self.file_redirect(&IoFileRedirectKind::Write, &target, segment);
+                let (target, is_static) = self.checked_word(word, segment, Role::Redirect, pending);
+                self.file_redirect(&IoFileRedirectKind::Write, &target, is_static, segment);
                 Some(Redirect {
                     op: if *append { "&>>" } else { "&>" },
                     fd: None,
@@ -842,7 +875,13 @@ impl Walker<'_> {
         }
     }
 
-    fn file_redirect(&mut self, kind: &IoFileRedirectKind, target: &str, segment: Option<usize>) {
+    fn file_redirect(
+        &mut self,
+        kind: &IoFileRedirectKind,
+        target: &str,
+        is_static: bool,
+        segment: Option<usize>,
+    ) {
         let construct = match kind {
             IoFileRedirectKind::Read => ConstructKind::RedirectRead,
             _ if target == "/dev/null" => return,
@@ -860,6 +899,7 @@ impl Walker<'_> {
             segment,
             detail: None,
             target: Some(target.to_owned()),
+            dynamic_target: !is_static,
             dirs: self.dirs.clone(),
         });
     }
@@ -874,6 +914,7 @@ impl Walker<'_> {
             segment,
             detail,
             target: None,
+            dynamic_target: false,
             dirs: vec![],
         });
     }
